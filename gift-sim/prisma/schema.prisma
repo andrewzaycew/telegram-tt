@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Phone-less by default; login via bot pairing code
+  telegramChatId     String?  @unique
+
+  // Main username
+  username           String?  @unique
+
+  // Diamonds balance
+  diamonds           Int      @default(0)
+
+  // Account status
+  isBanned           Boolean  @default(false)
+  banReason          String?
+  giftsSpamBlocked   Boolean  @default(false)
+
+  // Relations
+  nftUsernames       NftUsername[]
+  conversationsA     Conversation[] @relation("A")
+  conversationsB     Conversation[] @relation("B")
+  messages           Message[]
+  userGifts          UserGift[]
+  diamondTxs         DiamondTransaction[]
+  pairingCodes       PairingCode[]
+  adminRoles         AdminRoleAssignment[]
+}
+
+model NftUsername {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  handle    String   @unique
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // two-party only; Saved Messages is user->user
+  userAId   String
+  userA     User     @relation("A", fields: [userAId], references: [id])
+  userBId   String
+  userB     User     @relation("B", fields: [userBId], references: [id])
+
+  messages  Message[]
+
+  @@unique([userAId, userBId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  createdAt      DateTime     @default(now())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id])
+
+  text           String
+}
+
+model Gift {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  name            String
+  slug            String   @unique // defined in admin
+  priceDiamonds   Int      // price to send / buy base gift
+  supply          Int?     // null = infinite
+
+  // base animation asset
+  baseAssetId     String?  // optional if only collectible usage planned
+
+  // convertible settings
+  isConvertible   Boolean  @default(false)
+  upgradePrice    Int?     // in diamonds, required when isConvertible
+
+  models          GiftModel[]
+  backdrops       GiftBackdrop[]
+
+  userGifts       UserGift[]
+}
+
+model GiftModel {
+  id         String  @id @default(cuid())
+  giftId     String
+  gift       Gift    @relation(fields: [giftId], references: [id])
+
+  name       String  // e.g., Golden
+  weight     Int     // probability weight
+  assetId    String  // TGS asset id for this model
+
+  userGifts  UserGift[]
+}
+
+model GiftBackdrop {
+  id         String  @id @default(cuid())
+  giftId     String
+  gift       Gift    @relation(fields: [giftId], references: [id])
+
+  name       String  // e.g., black
+  weight     Int
+
+  userGifts  UserGift[]
+}
+
+// Represents a gift instance owned by a user
+model UserGift {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ownerId         String
+  owner           User     @relation(fields: [ownerId], references: [id])
+
+  giftId          String
+  gift            Gift     @relation(fields: [giftId], references: [id])
+
+  // if collectible after upgrade
+  isCollectible   Boolean  @default(false)
+  serial          Int?
+
+  // chosen randomized attributes after upgrade
+  modelId         String?
+  model           GiftModel? @relation(fields: [modelId], references: [id])
+
+  backdropId      String?
+  backdrop        GiftBackdrop? @relation(fields: [backdropId], references: [id])
+}
+
+model DiamondTransaction {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  amount      Int      // positive credit, negative debit
+  reason      String
+  externalRef String?  // Stars payment id
+}
+
+model PairingCode {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  code        String   @unique // 6-digit
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+
+  usedAt      DateTime?
+}
+
+// Admin roles for granular permissions
+// Use string roles for SQLite compatibility. Enforce allowed values at app level.
+// Allowed values: SUPERADMIN, MANAGE_USERS, MANAGE_GIFTS, MANAGE_BALANCE
+
+model AdminRoleAssignment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  role      String
+
+  @@unique([userId, role])
+}
+
